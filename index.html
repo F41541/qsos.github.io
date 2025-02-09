@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Emergency Alert System</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="css/bootstrap.min.css" rel="stylesheet" />
+    <!-- Bootstrap JS -->
+    <script src="js/bootstrap.bundle.min.js"></script>
+
+    <style>
+      @keyframes flash {
+        0%,
+        100% {
+          background-color: red;
+        }
+
+        50% {
+          background-color: white;
+        }
+      }
+
+      .flash {
+        animation: flash 0.5s infinite;
+      }
+
+      .table {
+        table-layout: fixed;
+        width: 100%;
+      }
+
+      .text-center,
+      .modal-header,
+      .modal-body,
+      .modal-footer,
+      .modal-title {
+        text-align: center;
+      }
+
+      .status-cell {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .modal-dialog-centered {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+
+      #resolveButton {
+        display: none;
+      }
+
+      .center-button {
+        display: flex;
+        justify-content: center;
+        margin-top: 1rem;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container mt-5">
+      <h1 class="text-center mb-4">Emergency Alert System</h1>
+      <table class="table table-bordered text-center">
+        <thead class="table-dark">
+          <tr>
+            <th>Lokasi</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>PERUMAHAN A</td>
+            <td id="statusA" class="status-cell">Aman</td>
+          </tr>
+          <tr>
+            <td>PERUMAHAN B</td>
+            <td id="statusB" class="status-cell">Aman</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="center-button">
+        <button type="button" class="btn btn-success" id="resolveButton">
+          Bencana Sudah Teratasi
+        </button>
+      </div>
+    </div>
+
+    <div
+      class="modal fade"
+      id="emergencyModal"
+      data-bs-backdrop="static"
+      data-bs-keyboard="false"
+      tabindex="-1"
+      aria-labelledby="emergencyModalLabel"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="emergencyModalLabel">
+              Emergency Alert
+            </h5>
+          </div>
+          <div class="modal-body" id="modalMessage">
+            Pesan darurat akan muncul di sini.
+          </div>
+          <div class="modal-footer center-button">
+            <button type="button" class="btn btn-primary" id="dispatchButton">
+              Luncurkan Petugas
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="modal fade"
+      id="staticBackdrop"
+      data-bs-backdrop="static"
+      data-bs-keyboard="false"
+      tabindex="-1"
+      aria-labelledby="staticBackdropLabel"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h1 class="modal-title fs-5" id="staticBackdropLabel">
+              Izin Audio
+            </h1>
+          </div>
+          <div class="modal-body">
+            Diperlukan izin untuk mengaktifkan suara.
+          </div>
+          <div class="modal-footer center-button">
+            <button type="button" class="btn btn-primary" id="confirmAudio">
+              Izinkan
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <audio id="emergencySound" src="emergency-alarm.mp3" loop></audio>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+    <script>
+      const emergencyModal = new bootstrap.Modal(
+        document.getElementById("emergencyModal")
+      );
+      const emergencySound = document.getElementById("emergencySound");
+
+      window.onload = () => {
+        const audioModal = new bootstrap.Modal(
+          document.getElementById("staticBackdrop")
+        );
+        audioModal.show();
+
+        document
+          .getElementById("confirmAudio")
+          .addEventListener("click", () => {
+            emergencySound
+              .play()
+              .then(() => {
+                emergencySound.pause();
+                emergencySound.currentTime = 0;
+                audioModal.hide();
+              })
+              .catch((error) => {
+                console.error("Gagal mengaktifkan audio:", error);
+                audioModal.hide();
+              });
+          });
+      };
+
+      const clientId = Math.random().toString(16).substr(2, 8);
+      const client = mqtt.connect("wss://broker.emqx.io:8084/mqtt", {
+        keepalive: 30,
+        clientId,
+        protocolId: "MQTT",
+        protocolVersion: 4,
+        clean: true,
+        reconnectPeriod: 1000,
+        connectTimeout: 30 * 1000,
+      });
+
+      client.on("connect", () => {
+        console.log("MQTT connected: " + clientId);
+        client.subscribe("diva/rumah-a/merah", { qos: 1 });
+        client.subscribe("diva/rumah-b/kuning", { qos: 1 });
+      });
+
+      client.on("message", (topic, message) => {
+      console.log("Message received:", message.toString(), "on topic:", topic);
+        const handleEmergency = (statusId, location, severity) => {
+          const statusElement = document.getElementById(statusId);
+          statusElement.innerText = "EMERGENCY!";
+          statusElement.classList.add("flash");
+          statusElement.style.color = "#ffffff";
+
+          emergencySound.currentTime = 0;
+          emergencySound.play();
+
+          const modalMessage = document.getElementById("modalMessage");
+          modalMessage.innerHTML = `<strong>${location} ${severity}</strong><br><br>SEGERA LUNCURKAN PETUGAS!`;
+          emergencyModal.show();
+        };
+
+        if (topic === "diva/rumah-a/merah" && message.toString() === "1") {
+          handleEmergency("statusA", "PERUMAHAN A", "KEBAKARAN");
+        } else if (topic === "diva/rumah-b/kuning" && message.toString() === "1") {
+          handleEmergency("statusB", "PERUMAHAN B", "KEBAKARAN");
+        }
+      });
+
+      document
+        .getElementById("dispatchButton")
+        .addEventListener("click", () => {
+          emergencySound.pause();
+          emergencySound.currentTime = 0;
+          emergencyModal.hide();
+          document.getElementById("resolveButton").style.display = "block";
+        });
+
+      document.getElementById("resolveButton").addEventListener("click", () => {
+        emergencySound.pause();
+        emergencySound.currentTime = 0;
+        const statusElements = document.querySelectorAll(".status-cell");
+        statusElements.forEach((element) => {
+          element.classList.remove("flash");
+          element.innerText = "Aman";
+          element.style.color = "";
+          document.getElementById("resolveButton").style.display = "none";
+        });
+      });
+
+      client.on("error", (err) => console.error("MQTT Error:", err));
+    </script>
+  </body>
+</html>
